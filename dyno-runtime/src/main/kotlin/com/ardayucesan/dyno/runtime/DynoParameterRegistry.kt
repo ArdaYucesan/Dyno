@@ -19,6 +19,8 @@ object DynoParameterRegistry {
     private val triggers = mutableMapOf<String, DynoTriggerMethod>()
     private val debugFunctions = mutableMapOf<String, DynoDebugFunction>()
     private val functionParameters = mutableMapOf<String, MutableMap<String, Any?>>()
+    private val flowManipulations = mutableMapOf<String, DynoFlowManipulation>()
+    private val flowOverrides = mutableMapOf<String, MutableMap<String, Any?>>()
     private val instances = mutableMapOf<String, Any>()
     
     private val _parametersLiveData = MutableLiveData<Map<String, DynoExposedParameter>>()
@@ -658,6 +660,189 @@ object DynoParameterRegistry {
     fun getAllGroups(): Map<String, DynoGroupInfo> = groups.toMap()
     
     /**
+     * Register a StateFlow/MutableStateFlow for data class field manipulation.
+     */
+    fun registerFlowManipulation(
+        className: String,
+        fieldName: String,
+        displayName: String,
+        group: String,
+        description: String,
+        fields: Array<String>
+    ) {
+        val manipulationKey = "$className.$fieldName"
+        
+        android.util.Log.d("DynoParameterRegistry", "🔄 Registering flow manipulation: $manipulationKey")
+        
+        try {
+            val clazz = Class.forName(className)
+            val field = clazz.getDeclaredField(fieldName)
+            field.isAccessible = true
+            
+            // Analyze the data class fields
+            val manipulableFields = fields.mapNotNull { fieldName ->
+                try {
+                    // We'll determine data class type at runtime when instance is registered
+                    DynoFlowField(
+                        name = fieldName,
+                        displayName = fieldName.replaceFirstChar { it.uppercase() },
+                        type = DynoParameterType.STRING, // Will be determined at runtime
+                        currentValue = null,
+                        originalValue = null
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.w("DynoParameterRegistry", "Could not analyze field $fieldName", e)
+                    null
+                }
+            }
+            
+            val flowManipulation = DynoFlowManipulation(
+                name = fieldName,
+                displayName = displayName.ifEmpty { fieldName },
+                group = group,
+                description = description,
+                className = className,
+                fieldName = fieldName,
+                dataClassName = "Unknown", // Will be determined at runtime
+                manipulableFields = manipulableFields
+            )
+            
+            flowManipulations[manipulationKey] = flowManipulation
+            flowOverrides[manipulationKey] = mutableMapOf()
+            
+            android.util.Log.d("DynoParameterRegistry", "✅ Registered flow manipulation $manipulationKey with ${manipulableFields.size} fields")
+            
+        } catch (e: Exception) {
+            android.util.Log.e("DynoParameterRegistry", "❌ Error registering flow manipulation $manipulationKey", e)
+        }
+    }
+    
+    /**
+     * Set override value for a specific field in StateFlow data class.
+     */
+    fun setFlowFieldOverride(className: String, fieldName: String, dataField: String, value: Any?): Boolean {
+        val manipulationKey = "$className.$fieldName"
+        val overrides = flowOverrides[manipulationKey] ?: return false
+        
+        android.util.Log.d("DynoParameterRegistry", "🔧 Setting flow override: $manipulationKey.$dataField = $value")
+        
+        // Store override value
+        overrides[dataField] = value
+        
+        // Apply to StateFlow
+        return manipulateStateFlow(manipulationKey, dataField, value)
+    }
+    
+    /**
+     * Get current override value for a flow field.
+     */
+    fun getFlowFieldOverride(className: String, fieldName: String, dataField: String): Any? {
+        val manipulationKey = "$className.$fieldName"
+        return flowOverrides[manipulationKey]?.get(dataField)
+    }
+    
+    /**
+     * Manipulate StateFlow by creating new data class instance with overrides.
+     */
+    private fun manipulateStateFlow(manipulationKey: String, dataField: String, value: Any?): Boolean {
+        val manipulation = flowManipulations[manipulationKey] ?: return false
+        val instance = instances[manipulation.className] ?: return false
+        
+        return try {
+            // Get StateFlow field
+            val stateFlowField = instance::class.java.getDeclaredField(manipulation.fieldName)
+            stateFlowField.isAccessible = true
+            val stateFlow = stateFlowField.get(instance) as? kotlinx.coroutines.flow.MutableStateFlow<Any?>
+            
+            if (stateFlow == null) {
+                android.util.Log.e("DynoParameterRegistry", "Field ${manipulation.fieldName} is not a MutableStateFlow")
+                return false
+            }
+            
+            // Get current data
+            val currentData = stateFlow.value
+            
+            if (currentData != null) {
+                // Create new data class instance with overrides
+                val newData = copyDataClassWithOverrides(
+                    originalData = currentData,
+                    overrides = flowOverrides[manipulationKey] ?: emptyMap()
+                )
+                
+                // Update StateFlow
+                stateFlow.value = newData
+                
+                android.util.Log.d("DynoParameterRegistry", "✅ Successfully manipulated StateFlow: $manipulationKey.$dataField")
+                true
+            } else {
+                android.util.Log.w("DynoParameterRegistry", "StateFlow value is null, cannot manipulate")
+                false
+            }
+            
+        } catch (e: Exception) {
+            android.util.Log.e("DynoParameterRegistry", "❌ Error manipulating StateFlow", e)
+            false
+        }
+    }
+    
+    /**
+     * Create a copy of data class with field overrides applied.
+     */
+    private fun copyDataClassWithOverrides(originalData: Any, overrides: Map<String, Any?>): Any {
+        val dataClass = originalData::class.java
+        
+        try {
+            // Find copy method (Kotlin data classes have copy method)
+            val copyMethod = dataClass.methods.find { it.name == "copy" }
+            
+            if (copyMethod != null) {
+                // Use copy method with named parameters
+                return copyUsingCopyMethod(originalData, copyMethod, overrides)
+            } else {
+                // Fallback: use constructor
+                return copyUsingConstructor(originalData, dataClass, overrides)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("DynoParameterRegistry", "Error copying data class, falling back to constructor", e)
+            return copyUsingConstructor(originalData, dataClass, overrides)
+        }
+    }
+    
+    private fun copyUsingCopyMethod(originalData: Any, copyMethod: java.lang.reflect.Method, overrides: Map<String, Any?>): Any {
+        // For simplicity, use constructor approach
+        return copyUsingConstructor(originalData, originalData::class.java, overrides)
+    }
+    
+    private fun copyUsingConstructor(originalData: Any, dataClass: Class<*>, overrides: Map<String, Any?>): Any {
+        val constructor = dataClass.constructors.first()
+        val parameters = constructor.parameters
+        
+        // Prepare constructor arguments
+        val args = parameters.map { param ->
+            val overrideValue = overrides[param.name]
+            if (overrideValue != null) {
+                overrideValue // Use override
+            } else {
+                // Get original value
+                try {
+                    val field = dataClass.getDeclaredField(param.name)
+                    field.isAccessible = true
+                    field.get(originalData)
+                } catch (e: Exception) {
+                    null // Use null for missing fields
+                }
+            }
+        }.toTypedArray()
+        
+        return constructor.newInstance(*args)
+    }
+    
+    /**
+     * Get all registered flow manipulations.
+     */
+    fun getAllFlowManipulations(): Map<String, DynoFlowManipulation> = flowManipulations.toMap()
+    
+    /**
      * Clear all registrations.
      */
     fun clear() {
@@ -666,6 +851,8 @@ object DynoParameterRegistry {
         triggers.clear()
         debugFunctions.clear()
         functionParameters.clear()
+        flowManipulations.clear()
+        flowOverrides.clear()
         instances.clear()
         _parametersLiveData.postValue(emptyMap())
         _groupsLiveData.postValue(emptyMap())

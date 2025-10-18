@@ -17,8 +17,9 @@ class DynoSymbolProcessor(
         val triggerSymbols = resolver.getSymbolsWithAnnotation("com.ardayucesan.dyno.annotations.DynoTrigger")
         val groupSymbols = resolver.getSymbolsWithAnnotation("com.ardayucesan.dyno.annotations.DynoGroup")
         val functionSymbols = resolver.getSymbolsWithAnnotation("com.ardayucesan.dyno.annotations.DynoFunction")
+        val flowSymbols = resolver.getSymbolsWithAnnotation("com.ardayucesan.dyno.annotations.DynoFlow")
 
-        val allSymbols = (exposedSymbols + triggerSymbols + groupSymbols + functionSymbols).toList()
+        val allSymbols = (exposedSymbols + triggerSymbols + groupSymbols + functionSymbols + flowSymbols).toList()
         
         if (allSymbols.isEmpty()) {
             logger.info("DynoSymbolProcessor: No Dyno annotations found")
@@ -32,7 +33,7 @@ class DynoSymbolProcessor(
         }
 
         try {
-            generateDynoRegistry(exposedSymbols, triggerSymbols, groupSymbols, functionSymbols)
+            generateDynoRegistry(exposedSymbols, triggerSymbols, groupSymbols, functionSymbols, flowSymbols)
             logger.info("DynoSymbolProcessor: Registry generated successfully")
         } catch (e: Exception) {
             logger.error("DynoSymbolProcessor: Error generating registry: ${e.message}")
@@ -45,7 +46,8 @@ class DynoSymbolProcessor(
         exposedSymbols: Sequence<KSAnnotated>,
         triggerSymbols: Sequence<KSAnnotated>,
         groupSymbols: Sequence<KSAnnotated>,
-        functionSymbols: Sequence<KSAnnotated>
+        functionSymbols: Sequence<KSAnnotated>,
+        flowSymbols: Sequence<KSAnnotated>
     ) {
         val file = codeGenerator.createNewFile(
             dependencies = Dependencies(false),
@@ -54,7 +56,7 @@ class DynoSymbolProcessor(
         )
 
         file.bufferedWriter().use { writer ->
-            writer.write(generateRegistryCode(exposedSymbols, triggerSymbols, groupSymbols, functionSymbols))
+            writer.write(generateRegistryCode(exposedSymbols, triggerSymbols, groupSymbols, functionSymbols, flowSymbols))
         }
     }
 
@@ -62,7 +64,8 @@ class DynoSymbolProcessor(
         exposedSymbols: Sequence<KSAnnotated>,
         triggerSymbols: Sequence<KSAnnotated>,
         groupSymbols: Sequence<KSAnnotated>,
-        functionSymbols: Sequence<KSAnnotated>
+        functionSymbols: Sequence<KSAnnotated>,
+        flowSymbols: Sequence<KSAnnotated>
     ): String {
         val stringBuilder = StringBuilder()
 
@@ -178,6 +181,42 @@ class DynoSymbolProcessor(
                         stringBuilder.appendLine("            group = \"$group\",")
                         stringBuilder.appendLine("            description = \"$description\",")
                         stringBuilder.appendLine("            exposeParameters = $exposeParameters")
+                        stringBuilder.appendLine("        )")
+                        stringBuilder.appendLine()
+                    }
+                }
+            }
+        }
+
+        // Process flow manipulation fields
+        flowSymbols.forEach { symbol ->
+            when (symbol) {
+                is KSPropertyDeclaration -> {
+                    val annotation = symbol.annotations.find { 
+                        it.shortName.asString() == "DynoFlow" 
+                    }?.also { flowAnnotation ->
+                        val className = symbol.parentDeclaration?.qualifiedName?.asString() ?: return@forEach
+                        val fieldName = symbol.simpleName.asString()
+                        val name = flowAnnotation.arguments.find { it.name?.asString() == "name" }?.value as? String ?: ""
+                        val group = flowAnnotation.arguments.find { it.name?.asString() == "group" }?.value as? String ?: "Default"
+                        val description = flowAnnotation.arguments.find { it.name?.asString() == "description" }?.value as? String ?: ""
+                        
+                        // Get fields array
+                        val fieldsArg = flowAnnotation.arguments.find { it.name?.asString() == "fields" }?.value
+                        val fields = if (fieldsArg is List<*>) {
+                            fieldsArg.mapNotNull { it as? String }
+                        } else {
+                            emptyList()
+                        }
+                        
+                        stringBuilder.appendLine("        // Register flow manipulation: $className.$fieldName")
+                        stringBuilder.appendLine("        DynoParameterRegistry.registerFlowManipulation(")
+                        stringBuilder.appendLine("            className = \"$className\",")
+                        stringBuilder.appendLine("            fieldName = \"$fieldName\",")
+                        stringBuilder.appendLine("            displayName = \"${name.ifEmpty { fieldName }}\",")
+                        stringBuilder.appendLine("            group = \"$group\",")
+                        stringBuilder.appendLine("            description = \"$description\",")
+                        stringBuilder.appendLine("            fields = arrayOf(${fields.joinToString(", ") { "\"$it\"" }})")
                         stringBuilder.appendLine("        )")
                         stringBuilder.appendLine()
                     }

@@ -3,6 +3,7 @@ package com.ardayucesan.dyno.ui
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -47,6 +48,7 @@ fun DynoDebugScreen() {
     val groups by DynoParameterRegistry.groupsLiveData.observeAsState(emptyMap())
     val triggers = DynoParameterRegistry.getAllTriggers()
     val debugFunctions = DynoParameterRegistry.getAllDebugFunctions()
+    val flowManipulations = DynoParameterRegistry.getAllFlowManipulations()
     
     Column(
         modifier = Modifier
@@ -119,7 +121,7 @@ fun DynoDebugScreen() {
         
         Spacer(modifier = Modifier.height(24.dp))
         
-        if (parameters.isEmpty() && triggers.isEmpty() && debugFunctions.isEmpty()) {
+        if (parameters.isEmpty() && triggers.isEmpty() && debugFunctions.isEmpty() && flowManipulations.isEmpty()) {
             // Empty state
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -148,14 +150,16 @@ fun DynoDebugScreen() {
                 val parametersByGroup = parameters.values.groupBy { it.group }
                 val triggersByGroup = triggers.values.groupBy { it.group }
                 val debugFunctionsByGroup = debugFunctions.values.groupBy { it.group }
-                val allGroups = (parametersByGroup.keys + triggersByGroup.keys + debugFunctionsByGroup.keys).distinct()
+                val flowManipulationsByGroup = flowManipulations.values.groupBy { it.group }
+                val allGroups = (parametersByGroup.keys + triggersByGroup.keys + debugFunctionsByGroup.keys + flowManipulationsByGroup.keys).distinct()
                 
                 items(allGroups) { groupName ->
                     DynoGroupCard(
                         groupName = groupName,
                         parameters = parametersByGroup[groupName] ?: emptyList(),
                         triggers = triggersByGroup[groupName] ?: emptyList(),
-                        debugFunctions = debugFunctionsByGroup[groupName] ?: emptyList()
+                        debugFunctions = debugFunctionsByGroup[groupName] ?: emptyList(),
+                        flowManipulations = flowManipulationsByGroup[groupName] ?: emptyList()
                     )
                 }
             }
@@ -168,7 +172,8 @@ fun DynoGroupCard(
     groupName: String,
     parameters: List<DynoExposedParameter>,
     triggers: List<DynoTriggerMethod>,
-    debugFunctions: List<DynoDebugFunction>
+    debugFunctions: List<DynoDebugFunction>,
+    flowManipulations: List<DynoFlowManipulation>
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -203,14 +208,14 @@ fun DynoGroupCard(
                 
                 Spacer(modifier = Modifier.weight(1f))
                 
-                // Parameter, trigger and function count
-                if (parameters.isNotEmpty() || triggers.isNotEmpty() || debugFunctions.isNotEmpty()) {
+                // Parameter, trigger, function and flow count
+                if (parameters.isNotEmpty() || triggers.isNotEmpty() || debugFunctions.isNotEmpty() || flowManipulations.isNotEmpty()) {
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant,
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(
-                            text = "${parameters.size + triggers.size + debugFunctions.size}",
+                            text = "${parameters.size + triggers.size + debugFunctions.size + flowManipulations.size}",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -219,7 +224,7 @@ fun DynoGroupCard(
                 }
             }
             
-            if (parameters.isNotEmpty() || triggers.isNotEmpty() || debugFunctions.isNotEmpty()) {
+            if (parameters.isNotEmpty() || triggers.isNotEmpty() || debugFunctions.isNotEmpty() || flowManipulations.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(16.dp))
             }
             
@@ -252,6 +257,19 @@ fun DynoGroupCard(
             
             debugFunctions.forEach { debugFunction ->
                 DynoDebugFunctionRow(debugFunction = debugFunction)
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            
+            // Flow Manipulations Section
+            if (flowManipulations.isNotEmpty() && (parameters.isNotEmpty() || triggers.isNotEmpty() || debugFunctions.isNotEmpty())) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 12.dp),
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                )
+            }
+            
+            flowManipulations.forEach { flowManipulation ->
+                DynoFlowManipulationRow(flowManipulation = flowManipulation)
                 Spacer(modifier = Modifier.height(12.dp))
             }
         }
@@ -808,4 +826,188 @@ fun DynoFunctionStringParameter(
         modifier = Modifier.fillMaxWidth(),
         singleLine = true
     )
+}
+
+@Composable
+fun DynoFlowManipulationRow(flowManipulation: DynoFlowManipulation) {
+    var expanded by remember { mutableStateOf(false) }
+    
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
+        ),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            // Flow header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "🔄 ${flowManipulation.displayName}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    if (flowManipulation.description.isNotEmpty()) {
+                        Text(
+                            text = flowManipulation.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        )
+                    }
+                    Text(
+                        text = "Data Class: ${flowManipulation.dataClassName}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
+                }
+                
+                // Expand/collapse icon
+                Text(
+                    text = if (expanded) "▼" else "▶",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            }
+            
+            // Flow fields
+            if (expanded) {
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                if (flowManipulation.manipulableFields.isEmpty()) {
+                    Text(
+                        text = "No fields available for manipulation",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                } else {
+                    flowManipulation.manipulableFields.forEach { field ->
+                        DynoFlowFieldRow(
+                            flowManipulation = flowManipulation,
+                            field = field
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DynoFlowFieldRow(
+    flowManipulation: DynoFlowManipulation,
+    field: DynoFlowField
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = field.displayName,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium
+            )
+            
+            Text(
+                text = "Override: ${DynoParameterRegistry.getFlowFieldOverride(flowManipulation.className, flowManipulation.fieldName, field.name) ?: "None"} | Original: ${field.originalValue ?: "N/A"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+        }
+        
+        Spacer(modifier = Modifier.width(16.dp))
+        
+        // Input field based on type
+        when (field.type) {
+            DynoParameterType.BOOLEAN -> {
+                val currentOverride = DynoParameterRegistry.getFlowFieldOverride(
+                    flowManipulation.className,
+                    flowManipulation.fieldName,
+                    field.name
+                )
+                val currentValue = (currentOverride as? Boolean) ?: (field.currentValue as? Boolean) ?: false
+                Switch(
+                    checked = currentValue,
+                    onCheckedChange = { newValue ->
+                        DynoParameterRegistry.setFlowFieldOverride(
+                            flowManipulation.className,
+                            flowManipulation.fieldName,
+                            field.name,
+                            newValue
+                        )
+                    }
+                )
+            }
+            DynoParameterType.INT -> {
+                val currentOverride = DynoParameterRegistry.getFlowFieldOverride(
+                    flowManipulation.className,
+                    flowManipulation.fieldName,
+                    field.name
+                )
+                val currentValue = (currentOverride as? Int) ?: (field.currentValue as? Int) ?: 0
+                var textValue by remember(currentValue) { mutableStateOf(currentValue.toString()) }
+                
+                OutlinedTextField(
+                    value = textValue,
+                    onValueChange = { newValue ->
+                        textValue = newValue
+                        newValue.toIntOrNull()?.let { intValue ->
+                            DynoParameterRegistry.setFlowFieldOverride(
+                                flowManipulation.className,
+                                flowManipulation.fieldName,
+                                field.name,
+                                intValue
+                            )
+                        }
+                    },
+                    modifier = Modifier.width(120.dp),
+                    singleLine = true,
+                    label = { Text("Value") }
+                )
+            }
+            DynoParameterType.STRING -> {
+                val currentOverride = DynoParameterRegistry.getFlowFieldOverride(
+                    flowManipulation.className,
+                    flowManipulation.fieldName,
+                    field.name
+                )
+                val currentValue = (currentOverride as? String) ?: (field.currentValue as? String) ?: ""
+                var textValue by remember(currentValue) { mutableStateOf(currentValue) }
+                
+                OutlinedTextField(
+                    value = textValue,
+                    onValueChange = { newValue ->
+                        textValue = newValue
+                        DynoParameterRegistry.setFlowFieldOverride(
+                            flowManipulation.className,
+                            flowManipulation.fieldName,
+                            field.name,
+                            newValue
+                        )
+                    },
+                    modifier = Modifier.width(150.dp),
+                    singleLine = true,
+                    label = { Text("Value") }
+                )
+            }
+            else -> {
+                Text(
+                    text = "Unsupported type",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
+            }
+        }
+    }
 }

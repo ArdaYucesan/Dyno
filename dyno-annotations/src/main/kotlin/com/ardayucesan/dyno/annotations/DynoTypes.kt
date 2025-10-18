@@ -80,3 +80,28 @@ data class DynoDebugFunction(
     val parameters: List<DynoFunctionParameter>,
     val exposeParameters: Boolean
 )
+
+/**
+ * Metadata for a manipulatable field within a StateFlow data class.
+ */
+data class DynoFlowField(
+    val name: String,
+    val displayName: String,
+    val type: DynoParameterType,
+    val currentValue: Any?,
+    val originalValue: Any?
+)
+
+/**
+ * Metadata for a StateFlow/MutableStateFlow marked with @DynoFlow.
+ */
+data class DynoFlowManipulation(
+    val name: String,
+    val displayName: String,
+    val group: String,
+    val description: String,
+    val className: String,
+    val fieldName: String,
+    val dataClassName: String,
+    val manipulableFields: List<DynoFlowField>
+)
