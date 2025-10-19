@@ -9,7 +9,7 @@ package com.ardayucesan.dyno.annotations
  * 
  * Example:
  * ```
- * @DynoFlow(
+ * @field:DynoFlow(
  *     name = "Passenger Info",
  *     group = "Trip States", 
  *     fields = ["bookingStatus", "tripStatus", "isSearchingAgain"]

@@ -1,5 +1,7 @@
 package com.ardayucesan.dyno.runtime
 
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import com.ardayucesan.dyno.annotations.*
@@ -7,6 +9,9 @@ import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.lang.reflect.Parameter
 import kotlin.reflect.KClass
+import kotlin.reflect.full.memberProperties
+import kotlin.reflect.full.primaryConstructor
+import kotlin.reflect.jvm.javaField
 
 /**
  * Central registry for all Dyno exposed parameters and trigger methods.
@@ -329,7 +334,6 @@ object DynoParameterRegistry {
         instances[className] = instance
         
         // Runtime annotation scanning
-        //TODO: gerek yok böyle bir fonksiyona, ksp zaten compile-time'da bunu yapıyor hepsi için DynoRegistry'e kayıt oluşturuyor.
         scanInstanceAnnotations(instance)
         
         android.util.Log.d("DynoParameterRegistry", "Registered instance of $className")
@@ -421,6 +425,26 @@ object DynoParameterRegistry {
             }
         }
         android.util.Log.d("DynoParameterRegistry", "Total @DynoFunction methods found: $foundFunctions")
+        
+        // Scan fields for @DynoFlow
+        var foundFlows = 0
+        clazz.declaredFields.forEach { field ->
+            val dynoFlow = field.getAnnotation(com.ardayucesan.dyno.annotations.DynoFlow::class.java)
+            if (dynoFlow != null) {
+                foundFlows++
+                android.util.Log.d("DynoParameterRegistry", "Found @DynoFlow on field: ${field.name}")
+                
+                registerFlowManipulation(
+                    className = className,
+                    fieldName = field.name,
+                    displayName = dynoFlow.name.ifEmpty { field.name },
+                    group = dynoFlow.group,
+                    description = dynoFlow.description,
+                    fields = dynoFlow.fields
+                )
+            }
+        }
+        android.util.Log.d("DynoParameterRegistry", "Total @DynoFlow fields found: $foundFlows")
         android.util.Log.d("DynoParameterRegistry", "Annotation scanning completed for $className")
     }
     
@@ -720,17 +744,28 @@ object DynoParameterRegistry {
     /**
      * Set override value for a specific field in StateFlow data class.
      */
+    @RequiresApi(Build.VERSION_CODES.O)
     fun setFlowFieldOverride(className: String, fieldName: String, dataField: String, value: Any?): Boolean {
         val manipulationKey = "$className.$fieldName"
-        val overrides = flowOverrides[manipulationKey] ?: return false
+        android.util.Log.d("DynoParameterRegistry", "🔧 setFlowFieldOverride called: $manipulationKey.$dataField = $value")
         
-        android.util.Log.d("DynoParameterRegistry", "🔧 Setting flow override: $manipulationKey.$dataField = $value")
+        val overrides = flowOverrides[manipulationKey]
+        if (overrides == null) {
+            android.util.Log.e("DynoParameterRegistry", "❌ No overrides map found for: $manipulationKey")
+            android.util.Log.d("DynoParameterRegistry", "Available override keys: ${flowOverrides.keys}")
+            return false
+        }
+        
+        android.util.Log.d("DynoParameterRegistry", "✅ Found overrides map for: $manipulationKey")
         
         // Store override value
         overrides[dataField] = value
+        android.util.Log.d("DynoParameterRegistry", "✅ Stored override value: $dataField = $value")
         
         // Apply to StateFlow
-        return manipulateStateFlow(manipulationKey, dataField, value)
+        val result = manipulateStateFlow(manipulationKey, dataField, value)
+        android.util.Log.d("DynoParameterRegistry", "StateFlow manipulation result: $result")
+        return result
     }
     
     /**
@@ -744,34 +779,62 @@ object DynoParameterRegistry {
     /**
      * Manipulate StateFlow by creating new data class instance with overrides.
      */
+    @RequiresApi(Build.VERSION_CODES.O)
     private fun manipulateStateFlow(manipulationKey: String, dataField: String, value: Any?): Boolean {
-        val manipulation = flowManipulations[manipulationKey] ?: return false
-        val instance = instances[manipulation.className] ?: return false
+        android.util.Log.d("DynoParameterRegistry", "🔧 manipulateStateFlow called: $manipulationKey.$dataField = $value")
+        
+        val manipulation = flowManipulations[manipulationKey]
+        if (manipulation == null) {
+            android.util.Log.e("DynoParameterRegistry", "❌ No flow manipulation found for key: $manipulationKey")
+            return false
+        }
+        
+        val instance = instances[manipulation.className]
+        if (instance == null) {
+            android.util.Log.e("DynoParameterRegistry", "❌ No instance found for class: ${manipulation.className}")
+            return false
+        }
+        
+        android.util.Log.d("DynoParameterRegistry", "✅ Found manipulation and instance for: $manipulationKey")
         
         return try {
             // Get StateFlow field
+            android.util.Log.d("DynoParameterRegistry", "🔍 Getting StateFlow field: ${manipulation.fieldName}")
             val stateFlowField = instance::class.java.getDeclaredField(manipulation.fieldName)
             stateFlowField.isAccessible = true
             val stateFlow = stateFlowField.get(instance) as? kotlinx.coroutines.flow.MutableStateFlow<Any?>
             
             if (stateFlow == null) {
-                android.util.Log.e("DynoParameterRegistry", "Field ${manipulation.fieldName} is not a MutableStateFlow")
+                android.util.Log.e("DynoParameterRegistry", "❌ Field ${manipulation.fieldName} is not a MutableStateFlow")
+                android.util.Log.d("DynoParameterRegistry", "Field type: ${stateFlowField.type}")
                 return false
             }
             
+            android.util.Log.d("DynoParameterRegistry", "✅ Got MutableStateFlow successfully")
+            
             // Get current data
             val currentData = stateFlow.value
+            android.util.Log.d("DynoParameterRegistry", "📊 Current StateFlow value: $currentData")
             
             if (currentData != null) {
+                val overrides = flowOverrides[manipulationKey] ?: emptyMap()
+                android.util.Log.d("DynoParameterRegistry", "📝 Overrides to apply: $overrides")
+                
                 // Create new data class instance with overrides
                 val newData = copyDataClassWithOverrides(
                     originalData = currentData,
-                    overrides = flowOverrides[manipulationKey] ?: emptyMap()
+                    overrides = overrides
                 )
+                
+                android.util.Log.d("DynoParameterRegistry", "📊 New data created: $newData")
+                android.util.Log.d("DynoParameterRegistry", "🔄 Setting StateFlow.value from $currentData to $newData")
                 
                 // Update StateFlow
                 stateFlow.value = newData
                 
+                // Verify the change
+                val verifyValue = stateFlow.value
+                android.util.Log.d("DynoParameterRegistry", "✅ StateFlow.value after update: $verifyValue")
                 android.util.Log.d("DynoParameterRegistry", "✅ Successfully manipulated StateFlow: $manipulationKey.$dataField")
                 true
             } else {
@@ -788,53 +851,274 @@ object DynoParameterRegistry {
     /**
      * Create a copy of data class with field overrides applied.
      */
+    @RequiresApi(Build.VERSION_CODES.O)
     private fun copyDataClassWithOverrides(originalData: Any, overrides: Map<String, Any?>): Any {
         val dataClass = originalData::class.java
+        android.util.Log.d("DynoParameterRegistry", "🏗️ Copying data class: ${dataClass.simpleName}")
+        android.util.Log.d("DynoParameterRegistry", "📊 Original data: $originalData")
+        android.util.Log.d("DynoParameterRegistry", "📝 Overrides: $overrides")
         
         try {
             // Find copy method (Kotlin data classes have copy method)
             val copyMethod = dataClass.methods.find { it.name == "copy" }
             
             if (copyMethod != null) {
+                android.util.Log.d("DynoParameterRegistry", "✅ Found copy method, using it")
                 // Use copy method with named parameters
                 return copyUsingCopyMethod(originalData, copyMethod, overrides)
             } else {
+                android.util.Log.d("DynoParameterRegistry", "⚠️ No copy method found, using constructor")
                 // Fallback: use constructor
                 return copyUsingConstructor(originalData, dataClass, overrides)
             }
         } catch (e: Exception) {
-            android.util.Log.e("DynoParameterRegistry", "Error copying data class, falling back to constructor", e)
+            android.util.Log.e("DynoParameterRegistry", "❌ Error copying data class, falling back to constructor", e)
             return copyUsingConstructor(originalData, dataClass, overrides)
         }
     }
     
+    @RequiresApi(Build.VERSION_CODES.O)
     private fun copyUsingCopyMethod(originalData: Any, copyMethod: java.lang.reflect.Method, overrides: Map<String, Any?>): Any {
         // For simplicity, use constructor approach
         return copyUsingConstructor(originalData, originalData::class.java, overrides)
     }
     
+    @RequiresApi(Build.VERSION_CODES.O)
     private fun copyUsingConstructor(originalData: Any, dataClass: Class<*>, overrides: Map<String, Any?>): Any {
-        val constructor = dataClass.constructors.first()
+        android.util.Log.d("DynoParameterRegistry", "🔍 Using Kotlin reflection for data class copying")
+        
+        try {
+            // Use Kotlin reflection to get primary constructor
+            val kotlinClass = dataClass.kotlin
+            val primaryConstructor = kotlinClass.primaryConstructor
+            
+            if (primaryConstructor != null) {
+                android.util.Log.d("DynoParameterRegistry", "✅ Found Kotlin primary constructor with ${primaryConstructor.parameters.size} parameters")
+                
+                // Map constructor parameters to values using Kotlin reflection
+                val args = primaryConstructor.parameters.map { kParam ->
+                    val paramName = kParam.name ?: "unknown"
+                    android.util.Log.d("DynoParameterRegistry", "🔧 Processing Kotlin parameter: $paramName")
+                    
+                    val overrideValue = overrides[paramName]
+                    if (overrideValue != null) {
+                        android.util.Log.d("DynoParameterRegistry", "✅ Using override for '$paramName': $overrideValue")
+                        // Type conversion for override value
+                        val javaType = kParam.type.javaClass
+                        val convertedValue = convertValueToKotlinParameterType(overrideValue, kParam.type.classifier as? KClass<*>)
+                        android.util.Log.d("DynoParameterRegistry", "🔄 Converted override value to: $convertedValue")
+                        convertedValue
+                    } else {
+                        // Get original value using Kotlin property
+                        try {
+                            val property = kotlinClass.memberProperties.find { it.name == paramName }
+                            if (property != null) {
+                                val originalValue = property.getter.call(originalData)
+                                android.util.Log.d("DynoParameterRegistry", "📊 Using original value for '$paramName': $originalValue")
+                                originalValue
+                            } else {
+                                android.util.Log.w("DynoParameterRegistry", "⚠️ Could not find property '$paramName', using null")
+                                null
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.w("DynoParameterRegistry", "⚠️ Could not get property '$paramName', using null", e)
+                            null
+                        }
+                    }
+                }
+                
+                android.util.Log.d("DynoParameterRegistry", "🔧 Kotlin constructor args: $args")
+                return primaryConstructor.call(*args.toTypedArray())
+            } else {
+                android.util.Log.w("DynoParameterRegistry", "⚠️ No primary constructor found, falling back to Java reflection")
+                return copyUsingJavaReflection(originalData, dataClass, overrides)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("DynoParameterRegistry", "❌ Kotlin reflection failed, falling back to Java reflection", e)
+            return copyUsingJavaReflection(originalData, dataClass, overrides)
+        }
+    }
+    
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun copyUsingJavaReflection(originalData: Any, dataClass: Class<*>, overrides: Map<String, Any?>): Any {
+        // Find primary constructor (the one with most parameters for data classes)
+        val constructor = dataClass.constructors.maxByOrNull { it.parameterCount }
+            ?: dataClass.constructors.first()
         val parameters = constructor.parameters
         
-        // Prepare constructor arguments
-        val args = parameters.map { param ->
-            val overrideValue = overrides[param.name]
-            if (overrideValue != null) {
-                overrideValue // Use override
-            } else {
-                // Get original value
-                try {
-                    val field = dataClass.getDeclaredField(param.name)
-                    field.isAccessible = true
-                    field.get(originalData)
-                } catch (e: Exception) {
-                    null // Use null for missing fields
+        android.util.Log.d("DynoParameterRegistry", "🔍 Selected constructor with ${constructor.parameterCount} parameters out of ${dataClass.constructors.size} constructors")
+        
+        // Get all fields from the data class in declaration order
+        val fields = dataClass.declaredFields.filter { field ->
+            // Only consider non-synthetic fields (skip companion object, etc.)
+            !field.isSynthetic && 
+            !java.lang.reflect.Modifier.isStatic(field.modifiers) &&
+            field.name != "INSTANCE" // Skip Kotlin object instances
+        }
+        
+        android.util.Log.d("DynoParameterRegistry", "📋 Data class has ${fields.size} declared fields:")
+        fields.forEachIndexed { index, field ->
+            android.util.Log.d("DynoParameterRegistry", "   Field $index: ${field.name} (${field.type.simpleName})")
+        }
+        
+        android.util.Log.d("DynoParameterRegistry", "🔧 Constructor has ${parameters.size} parameters:")
+        parameters.forEachIndexed { index, param ->
+            android.util.Log.d("DynoParameterRegistry", "   Parameter $index: name='${param.name}' (${param.type.simpleName})")
+        }
+        
+        // Map constructor parameters to data class fields by index
+        // This works because Kotlin data class primary constructor parameters
+        // correspond to the fields in declaration order
+        val args = parameters.mapIndexed { paramIndex, param ->
+            android.util.Log.d("DynoParameterRegistry", "🔧 Processing parameter $paramIndex (${param.name})")
+            
+            if (paramIndex < fields.size) {
+                val correspondingField = fields[paramIndex]
+                val fieldName = correspondingField.name
+                
+                android.util.Log.d("DynoParameterRegistry", "📌 Mapping parameter $paramIndex to field '$fieldName'")
+                
+                val overrideValue = overrides[fieldName]
+                if (overrideValue != null) {
+                    android.util.Log.d("DynoParameterRegistry", "✅ Using override for field '$fieldName': $overrideValue")
+                    // Type conversion for override value
+                    val convertedValue = convertValueToParameterType(overrideValue, param.type)
+                    android.util.Log.d("DynoParameterRegistry", "🔄 Converted override value to: $convertedValue (${convertedValue?.javaClass?.simpleName})")
+                    convertedValue
+                } else {
+                    // Get original value from field
+                    try {
+                        correspondingField.isAccessible = true
+                        val originalValue = correspondingField.get(originalData)
+                        android.util.Log.d("DynoParameterRegistry", "📊 Using original value for field '$fieldName': $originalValue")
+                        originalValue
+                    } catch (e: Exception) {
+                        android.util.Log.w("DynoParameterRegistry", "⚠️ Could not get field '$fieldName', using null", e)
+                        null
+                    }
                 }
+            } else {
+                android.util.Log.w("DynoParameterRegistry", "⚠️ Parameter $paramIndex has no corresponding field, using null")
+                null
             }
         }.toTypedArray()
         
+        android.util.Log.d("DynoParameterRegistry", "🔧 Final constructor args: ${args.contentToString()}")
+        
         return constructor.newInstance(*args)
+    }
+    
+    /**
+     * Convert a value to the target Kotlin parameter type.
+     */
+    private fun convertValueToKotlinParameterType(value: Any?, targetKClass: KClass<*>?): Any? {
+        if (value == null || targetKClass == null) return value
+        
+        return try {
+            when (targetKClass) {
+                Boolean::class -> {
+                    when (value) {
+                        is Boolean -> value
+                        is String -> value.toBoolean()
+                        else -> value.toString().toBoolean()
+                    }
+                }
+                Int::class -> {
+                    when (value) {
+                        is Number -> value.toInt()
+                        is String -> value.toInt()
+                        else -> value.toString().toInt()
+                    }
+                }
+                Long::class -> {
+                    when (value) {
+                        is Number -> value.toLong()
+                        is String -> value.toLong()
+                        else -> value.toString().toLong()
+                    }
+                }
+                Float::class -> {
+                    when (value) {
+                        is Number -> value.toFloat()
+                        is String -> value.toFloat()
+                        else -> value.toString().toFloat()
+                    }
+                }
+                Double::class -> {
+                    when (value) {
+                        is Number -> value.toDouble()
+                        is String -> value.toDouble()
+                        else -> value.toString().toDouble()
+                    }
+                }
+                String::class -> value.toString()
+                else -> {
+                    // For enum types and others, try to return as-is
+                    value
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("DynoParameterRegistry", "⚠️ Kotlin type conversion failed for $value to ${targetKClass.simpleName}, using original value", e)
+            value
+        }
+    }
+    
+    /**
+     * Convert a value to the target parameter type.
+     */
+    private fun convertValueToParameterType(value: Any?, targetType: Class<*>): Any? {
+        if (value == null) return null
+        
+        return try {
+            when (targetType) {
+                Boolean::class.java, java.lang.Boolean::class.java -> {
+                    when (value) {
+                        is Boolean -> value
+                        is String -> value.toBoolean()
+                        else -> value.toString().toBoolean()
+                    }
+                }
+                Int::class.java, java.lang.Integer::class.java -> {
+                    when (value) {
+                        is Number -> value.toInt()
+                        is String -> value.toInt()
+                        else -> value.toString().toInt()
+                    }
+                }
+                Long::class.java, java.lang.Long::class.java -> {
+                    when (value) {
+                        is Number -> value.toLong()
+                        is String -> value.toLong()
+                        else -> value.toString().toLong()
+                    }
+                }
+                Float::class.java, java.lang.Float::class.java -> {
+                    when (value) {
+                        is Number -> value.toFloat()
+                        is String -> value.toFloat()
+                        else -> value.toString().toFloat()
+                    }
+                }
+                Double::class.java, java.lang.Double::class.java -> {
+                    when (value) {
+                        is Number -> value.toDouble()
+                        is String -> value.toDouble()
+                        else -> value.toString().toDouble()
+                    }
+                }
+                String::class.java -> value.toString()
+                else -> {
+                    if (targetType.isEnum) {
+                        targetType.enumConstants?.find { it.toString() == value.toString() } ?: value
+                    } else {
+                        value // Return as-is if no conversion needed
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("DynoParameterRegistry", "⚠️ Type conversion failed for $value to ${targetType.simpleName}, using original value", e)
+            value
+        }
     }
     
     /**

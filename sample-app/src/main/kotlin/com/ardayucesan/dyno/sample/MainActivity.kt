@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -168,6 +169,35 @@ fun MainScreen(buttonManager: ButtonManager, recomposeState: Int = 0) {
                     Text("Theme: ${buttonManager.buttonTheme}")
                     Text("Animation: ${buttonManager.animationDuration}ms")
                 }
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        // @DynoFlow StateFlow Debug Info
+        val userState by buttonManager.userStateFlow.collectAsState()
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Text(
+                    text = "🔄 @DynoFlow StateFlow:",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Logged In: ${userState.isLoggedIn}", color = MaterialTheme.colorScheme.onSecondaryContainer)
+                Text("User Name: '${userState.userName}'", color = MaterialTheme.colorScheme.onSecondaryContainer)
+                Text("User Level: ${userState.userLevel}", color = MaterialTheme.colorScheme.onSecondaryContainer)
+                Text("Has Subscription: ${userState.hasActiveSubscription}", color = MaterialTheme.colorScheme.onSecondaryContainer)
+                Text("Notifications: ${userState.notificationsEnabled}", color = MaterialTheme.colorScheme.onSecondaryContainer)
+                Text("Current City: '${userState.currentCity}'", color = MaterialTheme.colorScheme.onSecondaryContainer)
             }
         }
         

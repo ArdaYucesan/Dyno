@@ -3,6 +3,21 @@ package com.ardayucesan.dyno.sample
 import com.ardayucesan.dyno.annotations.*
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.State
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+/**
+ * Sample UserState data class for testing @DynoFlow functionality
+ */
+data class UserState(
+    val isLoggedIn: Boolean = false,
+    val userName: String = "",
+    val userLevel: Int = 1,
+    val hasActiveSubscription: Boolean = false,
+    val notificationsEnabled: Boolean = true,
+    val currentCity: String = "Istanbul"
+)
 
 /**
  * Sample ButtonManager that manages domain buttons like Martı Tag, Scooter, and Courier buttons.
@@ -13,6 +28,21 @@ import androidx.compose.runtime.State
     description = "Manages the state and appearance of domain buttons"
 )
 class ButtonManager {
+    
+    // @DynoFlow example - StateFlow with manipulatable data class fields
+    @field:DynoFlow(
+        name = "User State",
+        group = "User Management",
+        description = "Current user state information that can be manipulated for testing",
+        fields = ["isLoggedIn", "userName", "userLevel", "hasActiveSubscription", "notificationsEnabled", "currentCity"]
+    )
+    private val _userStateFlow = MutableStateFlow(UserState())
+    val userStateFlow: StateFlow<UserState> = _userStateFlow.asStateFlow()
+    
+    init {
+        // Log StateFlow changes for debugging
+        android.util.Log.d("ButtonManager", "ButtonManager initialized with UserState: ${_userStateFlow.value}")
+    }
     
     // Trip related parameters
     @field:DynoExpose(
@@ -153,6 +183,43 @@ class ButtonManager {
         
         android.util.Log.d("ButtonManager", "Simulating courier delivery")
         updateButtonStates()
+    }
+    
+    @DynoTrigger(
+        name = "Update User State",
+        group = "User Management",
+        description = "Update user state with some test values"
+    )
+    fun updateUserState() {
+        _userStateFlow.value = UserState(
+            isLoggedIn = true,
+            userName = "Test User",
+            userLevel = 5,
+            hasActiveSubscription = true,
+            notificationsEnabled = true,
+            currentCity = "Ankara"
+        )
+        android.util.Log.d("ButtonManager", "User state updated: ${_userStateFlow.value}")
+    }
+    
+    @DynoTrigger(
+        name = "Log Current User State",
+        group = "User Management", 
+        description = "Log the current user state to console"
+    )
+    fun logCurrentUserState() {
+        val currentState = _userStateFlow.value
+        val publicState = userStateFlow.value
+        android.util.Log.d("ButtonManager", "=== Current User State ===")
+        android.util.Log.d("ButtonManager", "Private flow value: $currentState")
+        android.util.Log.d("ButtonManager", "Public flow value: $publicState")
+        android.util.Log.d("ButtonManager", "Is Logged In: ${currentState.isLoggedIn}")
+        android.util.Log.d("ButtonManager", "User Name: '${currentState.userName}'")
+        android.util.Log.d("ButtonManager", "User Level: ${currentState.userLevel}")
+        android.util.Log.d("ButtonManager", "Has Subscription: ${currentState.hasActiveSubscription}")
+        android.util.Log.d("ButtonManager", "Notifications: ${currentState.notificationsEnabled}")
+        android.util.Log.d("ButtonManager", "Current City: '${currentState.currentCity}'")
+        android.util.Log.d("ButtonManager", "========================")
     }
     
     // Private helper methods
