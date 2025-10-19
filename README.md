@@ -11,6 +11,7 @@ Dyno is a powerful Android debugging library that allows you to modify UI state 
 - 📱 **Type support** - Boolean, Int, Long, Float, Double, String, Enum
 - 🏷️ **Grouping** - Organize parameters by groups for better UX
 - ⚡ **Method triggers** - Execute methods from debug interface
+- 🌊 **StateFlow manipulation** - Direct data class field editing with @DynoFlow
 - 🛡️ **Debug-only** - Automatically disabled in release builds
 
 ## 🚀 Quick Start
@@ -142,6 +143,25 @@ Marks a method to be triggerable from UI:
 fun myAction() { }
 ```
 
+#### `@DynoFlow` ⭐ NEW!
+Enables direct manipulation of StateFlow data class fields:
+```kotlin
+@DynoFlow(
+    name = "User State",            // UI display name (optional)
+    group = "User Management",      // Group for organization (optional)
+    description = "Current user state", // Help text (optional)
+    fields = ["isLoggedIn", "userName", "userLevel"] // Fields to expose
+)
+private val _userStateFlow = MutableStateFlow(UserState())
+val userStateFlow: StateFlow<UserState> = _userStateFlow.asStateFlow()
+```
+
+**Benefits of @DynoFlow:**
+- ✅ **No boilerplate** - Eliminate separate override variables
+- ✅ **Clean ViewModels** - No debug clutter in production code
+- ✅ **Real-time manipulation** - Direct StateFlow field editing
+- ✅ **Type-safe** - Automatic field type detection and conversion
+
 ### Supported Types
 
 - `Boolean` - Toggle switch
@@ -190,6 +210,52 @@ Dyno is built with a multi-module architecture:
 - **dyno-ui** - Compose-based debug interface
 - **dyno-core** - Main API and initialization
 - **sample-app** - Example implementation
+
+## 🌊 StateFlow Debugging with @DynoFlow
+
+### The Problem with Traditional Debugging
+Before @DynoFlow, debugging StateFlow data class fields required ugly boilerplate:
+
+```kotlin
+// ❌ UGLY: Separate override variables cluttering ViewModel
+var bookingStatusOverride: Int = -1
+var tripStatusOverride: Int = -1
+var searchAgainOverride: Boolean? = null
+
+// ❌ UGLY: Manual override logic in getters
+fun bookingStatus(): Int? = if (bookingStatusOverride != -1) 
+    bookingStatusOverride else passengerInfoFlow.value?.bookingStatus
+```
+
+### The @DynoFlow Solution
+With @DynoFlow, achieve clean, direct StateFlow manipulation:
+
+```kotlin
+// ✅ CLEAN: Single annotation, no boilerplate
+@field:DynoFlow(
+    name = "Passenger Info",
+    group = "Trip States",
+    description = "Debug passenger booking and trip status",
+    fields = ["hasBooking", "bookingStatus", "hasTrip", "tripStatus"]
+)
+private val _passengerInfoFlow = MutableStateFlow<PassengerInfoModel?>(null)
+val passengerInfoFlow: StateFlow<PassengerInfoModel?> = _passengerInfoFlow.asStateFlow()
+
+// ✅ CLEAN: No override variables needed!
+// StateFlow manipulation happens automatically via Dyno UI
+```
+
+### How It Works
+1. **Annotation Processing** - KSP processor detects @DynoFlow annotations
+2. **Runtime Registration** - Dyno registers StateFlow fields for manipulation
+3. **UI Generation** - Debug interface shows expandable cards with field controls
+4. **Data Class Copying** - Uses Kotlin reflection to create new instances with overrides
+5. **StateFlow Update** - Automatically updates StateFlow with new data class instance
+
+### Requirements
+- Must use `@field:DynoFlow` prefix for backing field annotation
+- StateFlow must contain data class (not primitives)
+- Specify field names in `fields` array parameter
 
 ## 🔧 Advanced Usage
 

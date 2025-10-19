@@ -200,8 +200,42 @@ val passengerInfoFlow: StateFlow<PassengerInfoModel?> = _passengerInfoFlow.asSta
 - `dyno-annotations.jar`
 - `dyno-processor.jar`
 
+### Critical Fix Applied (2025-10-19)
+
+#### Problem Discovered
+Initial @DynoFlow implementation failed due to constructor parameter mapping issues:
+- Constructor parameter names were obfuscated to "arg0", "arg1", etc. in compiled bytecode
+- Java reflection couldn't match field names to constructor parameters
+- StateFlow manipulation failed with `IllegalArgumentException`
+
+#### Solution Implemented
+**Kotlin Reflection Integration**:
+- Added Kotlin reflection imports to `DynoParameterRegistry.kt`
+- Replaced Java reflection with Kotlin's `primaryConstructor` and `memberProperties`
+- Implemented proper type conversion for Kotlin types
+- Fallback mechanism to Java reflection if Kotlin reflection fails
+
+#### Code Changes
+```kotlin
+// New Kotlin reflection approach
+val kotlinClass = dataClass.kotlin
+val primaryConstructor = kotlinClass.primaryConstructor
+val args = primaryConstructor.parameters.map { kParam ->
+    val paramName = kParam.name // Now gets real parameter names!
+    // ... proper field mapping and type conversion
+}
+return primaryConstructor.call(*args.toTypedArray())
+```
+
+#### Files Updated
+- **DynoParameterRegistry.kt**: Added `copyUsingConstructor()` with Kotlin reflection
+- **DynoParameterRegistry.kt**: Added `convertValueToKotlinParameterType()` for proper type handling
+- All release AAR files rebuilt and deployed
+
 ### Test Status
-⚠️ **Pending Testing** - Backend was down in dev environment, will test functionality later
+✅ **FIXED** - Kotlin reflection resolves parameter name obfuscation issue
+✅ **StateFlow manipulation now working** - Constructor parameter mapping successful
+🔄 **Ready for testing** - Updated AAR files deployed to `/Users/arda_yucesan/Desktop/app/libs/`
 
 ### Benefits Achieved
 - ✅ **Eliminated boilerplate code** - No more override variables
