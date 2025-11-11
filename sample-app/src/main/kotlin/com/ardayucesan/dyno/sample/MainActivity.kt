@@ -1,24 +1,30 @@
 package com.ardayucesan.dyno.sample
 
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ardayucesan.dyno.Dyno
-import com.ardayucesan.dyno.annotations.DynoTrigger
+import com.ardayucesan.dyno.annotations.DynoFlow
 import com.ardayucesan.dyno.annotations.DynoGroup
 import com.ardayucesan.dyno.sample.ui.theme.DynoSampleTheme
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+data class PassengerInfoModel(
+    val hasBooking: Boolean = false,
+    val bookingStatus: Int = 0,
+    val hasTrip: Boolean = false,
+    val tripStatus: Int = 0,
+    val isPackage: Boolean = false
+)
 
 @DynoGroup(
     name = "MainActivity",
@@ -26,8 +32,14 @@ import com.ardayucesan.dyno.sample.ui.theme.DynoSampleTheme
 )
 class MainActivity : ComponentActivity() {
     
-    private lateinit var buttonManager: ButtonManager
-    private var recomposeState by mutableStateOf(0)
+    @field:DynoFlow(
+        name = "Passenger Info",
+        group = "Trip States",
+        description = "Debug passenger booking and trip status information",
+        fields = ["hasBooking", "bookingStatus", "hasTrip", "tripStatus", "isPackage"],
+    )
+    private val _passengerInfoFlow = MutableStateFlow(PassengerInfoModel())
+    val passengerInfoFlow: StateFlow<PassengerInfoModel> = _passengerInfoFlow.asStateFlow()
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -35,19 +47,8 @@ class MainActivity : ComponentActivity() {
         // Initialize Dyno
         Dyno.initialize(this, enableInDebug = true)
         
-        // Create and register ButtonManager
-        buttonManager = ButtonManager()
-        Dyno.register(buttonManager)
-        
-        // Register MainActivity itself for UI refresh trigger
+        // Register MainActivity itself
         Dyno.register(this)
-        
-        // Debug: Manual registration to test
-        android.util.Log.d("MainActivity", "ButtonManager created and registered")
-        android.util.Log.d("MainActivity", "ButtonManager hasTrip: ${buttonManager.hasTrip}")
-        
-        // Trigger initial state to test
-        buttonManager.updateButtonStates()
         
         setContent {
             DynoSampleTheme {
@@ -55,32 +56,21 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    MainScreen(buttonManager, recomposeState)
+                    MainScreen()
                 }
             }
         }
     }
     
-    @DynoTrigger(
-        name = "Refresh UI",
-        group = "Triggers", 
-        description = "Force refresh the UI to reflect parameter changes"
-    )
-    fun refreshUI() {
-        android.util.Log.d("MainActivity", "Refreshing UI...")
-        recomposeState++
-    }
-    
     override fun onDestroy() {
         super.onDestroy()
         // Unregister when destroying
-        Dyno.unregister(buttonManager)
         Dyno.unregister(this)
     }
 }
 
 @Composable
-fun MainScreen(buttonManager: ButtonManager, recomposeState: Int = 0) {
+fun MainScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -88,187 +78,10 @@ fun MainScreen(buttonManager: ButtonManager, recomposeState: Int = 0) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        
-        // Header
         Text(
-            text = "🔧 Dyno Sample App",
+            text = "Hello World",
             style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 32.dp)
+            fontWeight = FontWeight.Bold
         )
-        
-        Text(
-            text = "This app demonstrates Dyno debugging library",
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
-        
-        Text(
-            text = "Check the notification panel for Dyno debug interface",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 32.dp)
-        )
-        
-        // Domain buttons (simulated)
-        Text(
-            text = "Domain Buttons:",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
-        
-        // Tag Button
-        Log.d("ButtonManager", "MainScreen: recompose $recomposeState")
-        DomainButton(
-            text = "Martı TAG",
-            color = getTagButtonColor(buttonManager),
-            onClick = { /* Handle tag button click */ }
-        )
-        
-        Spacer(modifier = Modifier.height(12.dp))
-        
-        // Scooter Button
-        DomainButton(
-            text = "Martı Scooter",
-            color = getScooterButtonColor(buttonManager),
-            onClick = { /* Handle scooter button click */ }
-        )
-        
-        Spacer(modifier = Modifier.height(12.dp))
-        
-        // Courier Button
-        DomainButton(
-            text = "Martı Courier",
-            color = getCourierButtonColor(buttonManager),
-            onClick = { /* Handle courier button click */ }
-        )
-        
-        Spacer(modifier = Modifier.height(32.dp))
-        
-        // Debug info
-        if (true) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp)
-                ) {
-                    Text(
-                        text = "Debug Info:",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Trip: ${buttonManager.hasTrip} (${buttonManager.tripStatus})")
-                    Text("Booking: ${buttonManager.hasBooking} (${buttonManager.bookingStatus})")
-                    Text("Courier: ${buttonManager.hasCourier} (${buttonManager.courierStatus})")
-                    Text("Theme: ${buttonManager.buttonTheme}")
-                    Text("Animation: ${buttonManager.animationDuration}ms")
-                }
-            }
-        }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        // @DynoFlow StateFlow Debug Info
-        val userState by buttonManager.userStateFlow.collectAsState()
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer
-            )
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp)
-            ) {
-                Text(
-                    text = "🔄 @DynoFlow StateFlow:",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("Logged In: ${userState.isLoggedIn}", color = MaterialTheme.colorScheme.onSecondaryContainer)
-                Text("User Name: '${userState.userName}'", color = MaterialTheme.colorScheme.onSecondaryContainer)
-                Text("User Level: ${userState.userLevel}", color = MaterialTheme.colorScheme.onSecondaryContainer)
-                Text("Has Subscription: ${userState.hasActiveSubscription}", color = MaterialTheme.colorScheme.onSecondaryContainer)
-                Text("Notifications: ${userState.notificationsEnabled}", color = MaterialTheme.colorScheme.onSecondaryContainer)
-                Text("Current City: '${userState.currentCity}'", color = MaterialTheme.colorScheme.onSecondaryContainer)
-            }
-        }
-        
-        Spacer(modifier = Modifier.height(32.dp))
-        
-        // Manual debug interface launcher
-        val context = LocalContext.current
-        Button(
-            onClick = { 
-                Dyno.launchDebugInterface(context)
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("🔧 Open Dyno Debug Interface")
-        }
-    }
-}
-
-@Composable
-fun DomainButton(
-    text: String,
-    color: Color,
-    onClick: () -> Unit
-) {
-    Button(
-        onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(56.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = color
-        ),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Medium
-        )
-    }
-}
-
-@Composable
-fun getTagButtonColor(buttonManager: ButtonManager): Color {
-    Log.d("ButtonManager", "getTagButtonColor: worked ${buttonManager.hasTrip}")
-    Log.d("ButtonManager", "getTagButtonColor: worked ${buttonManager.hasBooking}")
-    Log.d("ButtonManager", "getTagButtonColor: worked ${buttonManager.bookingStatus}")
-    return when {
-        buttonManager.hasTrip && buttonManager.tripStatus == 1 -> Color(0xFF4CAF50) // Green
-        buttonManager.hasBooking && buttonManager.bookingStatus > 0 -> Color(0xFF2196F3) // Blue
-        else -> Color(0xFF9E9E9E) // Gray
-    }
-}
-
-@Composable
-fun getScooterButtonColor(buttonManager: ButtonManager): Color {
-    Log.d("ButtonManager", "getScooterButtonColor: worked ${buttonManager.hasTrip}")
-    Log.d("ButtonManager", "getScooterButtonColor: worked ${buttonManager.tripStatus}")
-    return when {
-        buttonManager.hasTrip && buttonManager.tripStatus == 1 -> Color(0xFF4CAF50) // Green
-        buttonManager.hasBooking && buttonManager.bookingStatus > 0 -> Color(0xFF2196F3) // Blue
-        else -> Color(0xFF9E9E9E) // Gray
-    }
-}
-
-@Composable
-fun getCourierButtonColor(buttonManager: ButtonManager): Color {
-    Log.d("ButtonManager", "getCourierButtonColor: worked ${buttonManager.hasCourier}")
-    Log.d("ButtonManager", "getCourierButtonColor: worked ${buttonManager.courierStatus}")
-    return when {
-        buttonManager.hasCourier && buttonManager.courierStatus > 0 -> Color(0xFFFF9800) // Orange
-        else -> Color(0xFF9E9E9E) // Gray
     }
 }
