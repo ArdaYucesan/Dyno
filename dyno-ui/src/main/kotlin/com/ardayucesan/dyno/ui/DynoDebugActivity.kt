@@ -834,49 +834,89 @@ fun DynoFlowManipulationRow(flowManipulation: DynoFlowManipulation) {
     
     Card(
         modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         ),
-        shape = RoundedCornerShape(12.dp)
+        shape = RoundedCornerShape(16.dp)
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
         ) {
             // Flow header
-            Row(
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { expanded = !expanded },
-                verticalAlignment = Alignment.CenterVertically
+                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(12.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "🔄 ${flowManipulation.displayName}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    if (flowManipulation.description.isNotEmpty()) {
-                        Text(
-                            text = flowManipulation.description,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                        )
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Icon indicator
+                    Surface(
+                        modifier = Modifier.size(32.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "🔄",
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
                     }
-                    Text(
-                        text = "Data Class: ${flowManipulation.dataClassName}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                    )
+                    
+                    Spacer(modifier = Modifier.width(12.dp))
+                    
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = flowManipulation.displayName,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (flowManipulation.description.isNotEmpty()) {
+                            Text(
+                                text = flowManipulation.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "${flowManipulation.manipulableFields.size} fields",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    
+                    // Expand/collapse icon with modern styling
+                    Surface(
+                        modifier = Modifier.size(24.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (expanded) "▼" else "▶",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
-                
-                // Expand/collapse icon
-                Text(
-                    text = if (expanded) "▼" else "▶",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                )
             }
             
             // Flow fields
@@ -936,16 +976,22 @@ fun DynoFlowFieldRow(
                     flowManipulation.fieldName,
                     field.name
                 )
-                val currentValue = (currentOverride as? Boolean) ?: (field.currentValue as? Boolean) ?: false
+                val originalValue = (field.currentValue as? Boolean) ?: false
+                val currentValue = (currentOverride as? Boolean) ?: originalValue
+                
+                var switchState by remember(currentValue) { mutableStateOf(currentValue) }
+                
                 Switch(
-                    checked = currentValue,
+                    checked = switchState,
                     onCheckedChange = { newValue ->
-                        DynoParameterRegistry.setFlowFieldOverride(
+                        switchState = newValue
+                        val success = DynoParameterRegistry.setFlowFieldOverride(
                             flowManipulation.className,
                             flowManipulation.fieldName,
                             field.name,
                             newValue
                         )
+                        android.util.Log.d("DynoDebugActivity", "Boolean switch changed: ${field.name} = $newValue, success = $success")
                     }
                 )
             }
@@ -955,7 +1001,8 @@ fun DynoFlowFieldRow(
                     flowManipulation.fieldName,
                     field.name
                 )
-                val currentValue = (currentOverride as? Int) ?: (field.currentValue as? Int) ?: 0
+                val originalValue = (field.currentValue as? Int) ?: 0
+                val currentValue = (currentOverride as? Int) ?: originalValue
                 var textValue by remember(currentValue) { mutableStateOf(currentValue.toString()) }
                 
                 OutlinedTextField(
@@ -963,12 +1010,13 @@ fun DynoFlowFieldRow(
                     onValueChange = { newValue ->
                         textValue = newValue
                         newValue.toIntOrNull()?.let { intValue ->
-                            DynoParameterRegistry.setFlowFieldOverride(
+                            val success = DynoParameterRegistry.setFlowFieldOverride(
                                 flowManipulation.className,
                                 flowManipulation.fieldName,
                                 field.name,
                                 intValue
                             )
+                            android.util.Log.d("DynoDebugActivity", "Int field changed: ${field.name} = $intValue, success = $success")
                         }
                     },
                     modifier = Modifier.width(120.dp),
@@ -1000,6 +1048,68 @@ fun DynoFlowFieldRow(
                     singleLine = true,
                     label = { Text("Value") }
                 )
+            }
+            DynoParameterType.ENUM -> {
+                val currentOverride = DynoParameterRegistry.getFlowFieldOverride(
+                    flowManipulation.className,
+                    flowManipulation.fieldName,
+                    field.name
+                )
+                val originalValue = (field.currentValue as? Int) ?: 0
+                val currentValue = (currentOverride as? Int) ?: originalValue
+                val enumMapping = field.enumMapping ?: emptyMap()
+                
+                var expanded by remember { mutableStateOf(false) }
+                var selectedValue by remember(currentValue) { mutableStateOf(currentValue) }
+                val selectedLabel = enumMapping[selectedValue] ?: "Unknown ($selectedValue)"
+                
+                Box {
+                    OutlinedButton(
+                        onClick = { expanded = true },
+                        modifier = Modifier.width(180.dp),
+                        colors = ButtonDefaults.outlinedButtonColors()
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = selectedLabel,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text("▼", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        enumMapping.forEach { (value, label) ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = "$label ($value)",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                },
+                                onClick = {
+                                    selectedValue = value
+                                    val success = DynoParameterRegistry.setFlowFieldOverride(
+                                        flowManipulation.className,
+                                        flowManipulation.fieldName,
+                                        field.name,
+                                        value
+                                    )
+                                    android.util.Log.d("DynoDebugActivity", "Enum field changed: ${field.name} = $value (${enumMapping[value]}), success = $success")
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
             }
             else -> {
                 Text(

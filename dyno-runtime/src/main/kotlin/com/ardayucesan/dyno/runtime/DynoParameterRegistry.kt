@@ -1,7 +1,6 @@
 package com.ardayucesan.dyno.runtime
 
 import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import com.ardayucesan.dyno.annotations.*
@@ -434,13 +433,15 @@ object DynoParameterRegistry {
                 foundFlows++
                 android.util.Log.d("DynoParameterRegistry", "Found @DynoFlow on field: ${field.name}")
                 
-                registerFlowManipulation(
+                registerFlowManipulationWithInstance(
+                    instance = instance,
                     className = className,
                     fieldName = field.name,
                     displayName = dynoFlow.name.ifEmpty { field.name },
                     group = dynoFlow.group,
                     description = dynoFlow.description,
-                    fields = dynoFlow.fields
+                    fields = dynoFlow.fields,
+                    enumMapping = dynoFlow.enumMapping
                 )
             }
         }
@@ -684,6 +685,126 @@ object DynoParameterRegistry {
     fun getAllGroups(): Map<String, DynoGroupInfo> = groups.toMap()
     
     /**
+     * Register a StateFlow/MutableStateFlow for data class field manipulation with instance context.
+     */
+    fun registerFlowManipulationWithInstance(
+        instance: Any,
+        className: String,
+        fieldName: String,
+        displayName: String,
+        group: String,
+        description: String,
+        fields: Array<String>,
+        enumMapping: Array<String> = emptyArray()
+    ) {
+        val manipulationKey = "$className.$fieldName"
+        
+        android.util.Log.d("DynoParameterRegistry", "🔄 Registering flow manipulation with instance: $manipulationKey")
+        
+        try {
+            val clazz = Class.forName(className)
+            val field = clazz.getDeclaredField(fieldName)
+            field.isAccessible = true
+
+            // Parse enum mapping: Format "fieldName:1:CREATED"
+            val parsedEnumMappings = mutableMapOf<String, Map<Int, String>>()
+            enumMapping.forEach { mappingString ->
+                try {
+                    val parts = mappingString.split(":")
+                    if (parts.size >= 3) {
+                        val fieldName = parts[0]
+                        val value = parts[1].toInt()
+                        val label = parts[2]
+                        
+                        val enumValues = parsedEnumMappings.getOrPut(fieldName) { mutableMapOf() }.toMutableMap()
+                        enumValues[value] = label
+                        parsedEnumMappings[fieldName] = enumValues
+                        
+                        android.util.Log.d("DynoParameterRegistry", "📋 Parsed enum mapping for $fieldName: $value -> $label")
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("DynoParameterRegistry", "Failed to parse enum mapping: $mappingString", e)
+                }
+            }
+            
+            // Get current StateFlow value to show real values in UI
+            val currentFlowValue = try {
+                val stateFlowField = instance::class.java.getDeclaredField(fieldName)
+                stateFlowField.isAccessible = true
+                val stateFlow = stateFlowField.get(instance) as? kotlinx.coroutines.flow.StateFlow<Any?>
+                stateFlow?.value
+            } catch (e: Exception) {
+                android.util.Log.w("DynoParameterRegistry", "Could not get StateFlow value for $fieldName", e)
+                null
+            }
+            android.util.Log.d("DynoParameterRegistry", "📊 Current StateFlow value: $currentFlowValue")
+            
+            // Analyze the data class fields - get real current values
+            val manipulableFields = fields.mapNotNull { flowfieldName ->
+                try {
+                    val enumMap = parsedEnumMappings[flowfieldName]
+                    val currentFieldValue = getFieldValueFromData(currentFlowValue, flowfieldName)
+                    
+                    android.util.Log.d("DynoParameterRegistry", "📊 Current value for $flowfieldName: $currentFieldValue")
+                    
+                    // Determine type based on enum mapping FIRST, then current value type
+                    val fieldType = when {
+                        enumMap != null && enumMap.isNotEmpty() -> {
+                            android.util.Log.d("DynoParameterRegistry", "🔍 Field $flowfieldName: ENUM detected (has enumMap)")
+                            DynoParameterType.ENUM
+                        }
+                        currentFieldValue is Boolean -> {
+                            android.util.Log.d("DynoParameterRegistry", "🔍 Field $flowfieldName: BOOLEAN detected (value: $currentFieldValue)")
+                            DynoParameterType.BOOLEAN
+                        }
+                        currentFieldValue is Int -> {
+                            android.util.Log.d("DynoParameterRegistry", "🔍 Field $flowfieldName: INT detected (value: $currentFieldValue)")
+                            DynoParameterType.INT
+                        }
+                        else -> {
+                            android.util.Log.d("DynoParameterRegistry", "🔍 Field $flowfieldName: STRING fallback (value: $currentFieldValue, type: ${currentFieldValue?.javaClass?.simpleName})")
+                            DynoParameterType.STRING
+                        }
+                    }
+                    
+                    android.util.Log.d("DynoParameterRegistry", "🔍 Field $flowfieldName: type=$fieldType, enumMap=$enumMap, currentValue=$currentFieldValue")
+                    
+                    DynoFlowField(
+                        name = flowfieldName,
+                        displayName = flowfieldName.replaceFirstChar { it.uppercase() },
+                        type = fieldType,
+                        currentValue = currentFieldValue?.toString(),
+                        originalValue = currentFieldValue?.toString(),
+                        enumMapping = enumMap
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.w("DynoParameterRegistry", "Could not analyze field $flowfieldName", e)
+                    null
+                }
+            }
+            
+            val flowManipulation = DynoFlowManipulation(
+                name = fieldName,
+                displayName = displayName.ifEmpty { fieldName },
+                group = group,
+                description = description,
+                className = className,
+                fieldName = fieldName,
+                dataClassName = currentFlowValue?.javaClass?.simpleName ?: "Unknown",
+                manipulableFields = manipulableFields
+            )
+            
+            flowManipulations[manipulationKey] = flowManipulation
+            flowOverrides[manipulationKey] = mutableMapOf()
+            
+            android.util.Log.d("DynoParameterRegistry", "✅ Registered flow manipulation $manipulationKey with ${manipulableFields.size} fields")
+            
+        } catch (e: Exception) {
+            android.util.Log.e("DynoParameterRegistry", "❌ Error registering flow manipulation $manipulationKey", e)
+        }
+    }
+
+    /**
      * Register a StateFlow/MutableStateFlow for data class field manipulation.
      */
     fun registerFlowManipulation(
@@ -744,7 +865,6 @@ object DynoParameterRegistry {
     /**
      * Set override value for a specific field in StateFlow data class.
      */
-    @RequiresApi(Build.VERSION_CODES.O)
     fun setFlowFieldOverride(className: String, fieldName: String, dataField: String, value: Any?): Boolean {
         val manipulationKey = "$className.$fieldName"
         android.util.Log.d("DynoParameterRegistry", "🔧 setFlowFieldOverride called: $manipulationKey.$dataField = $value")
@@ -779,7 +899,6 @@ object DynoParameterRegistry {
     /**
      * Manipulate StateFlow by creating new data class instance with overrides.
      */
-    @RequiresApi(Build.VERSION_CODES.O)
     private fun manipulateStateFlow(manipulationKey: String, dataField: String, value: Any?): Boolean {
         android.util.Log.d("DynoParameterRegistry", "🔧 manipulateStateFlow called: $manipulationKey.$dataField = $value")
         
@@ -851,7 +970,6 @@ object DynoParameterRegistry {
     /**
      * Create a copy of data class with field overrides applied.
      */
-    @RequiresApi(Build.VERSION_CODES.O)
     private fun copyDataClassWithOverrides(originalData: Any, overrides: Map<String, Any?>): Any {
         val dataClass = originalData::class.java
         android.util.Log.d("DynoParameterRegistry", "🏗️ Copying data class: ${dataClass.simpleName}")
@@ -877,13 +995,11 @@ object DynoParameterRegistry {
         }
     }
     
-    @RequiresApi(Build.VERSION_CODES.O)
     private fun copyUsingCopyMethod(originalData: Any, copyMethod: java.lang.reflect.Method, overrides: Map<String, Any?>): Any {
         // For simplicity, use constructor approach
         return copyUsingConstructor(originalData, originalData::class.java, overrides)
     }
     
-    @RequiresApi(Build.VERSION_CODES.O)
     private fun copyUsingConstructor(originalData: Any, dataClass: Class<*>, overrides: Map<String, Any?>): Any {
         android.util.Log.d("DynoParameterRegistry", "🔍 Using Kotlin reflection for data class copying")
         
@@ -939,7 +1055,6 @@ object DynoParameterRegistry {
         }
     }
     
-    @RequiresApi(Build.VERSION_CODES.O)
     private fun copyUsingJavaReflection(originalData: Any, dataClass: Class<*>, overrides: Map<String, Any?>): Any {
         // Find primary constructor (the one with most parameters for data classes)
         val constructor = dataClass.constructors.maxByOrNull { it.parameterCount }
@@ -1118,6 +1233,30 @@ object DynoParameterRegistry {
         } catch (e: Exception) {
             android.util.Log.w("DynoParameterRegistry", "⚠️ Type conversion failed for $value to ${targetType.simpleName}, using original value", e)
             value
+        }
+    }
+    
+    /**
+     * Get field value from data class using reflection.
+     */
+    private fun getFieldValueFromData(data: Any?, fieldName: String): Any? {
+        if (data == null) return null
+        
+        return try {
+            // Try using Kotlin property first
+            val kotlinClass = data::class
+            val property = kotlinClass.memberProperties.find { it.name == fieldName }
+            if (property != null) {
+                property.getter.call(data)
+            } else {
+                // Fallback to Java field access
+                val field = data::class.java.getDeclaredField(fieldName)
+                field.isAccessible = true
+                field.get(data)
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("DynoParameterRegistry", "Could not get field value for $fieldName", e)
+            null
         }
     }
     

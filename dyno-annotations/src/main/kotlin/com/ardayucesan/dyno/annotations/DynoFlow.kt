@@ -23,5 +23,6 @@ annotation class DynoFlow(
     val name: String = "",
     val group: String = "Default",
     val description: String = "",
-    val fields: Array<String> = []
+    val fields: Array<String> = [],
+    val enumMapping: Array<String> = []
 )

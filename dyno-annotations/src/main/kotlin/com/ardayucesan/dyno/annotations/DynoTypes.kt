@@ -89,7 +89,8 @@ data class DynoFlowField(
     val displayName: String,
     val type: DynoParameterType,
     val currentValue: Any?,
-    val originalValue: Any?
+    val originalValue: Any?,
+    val enumMapping: Map<Int, String>? = null
 )
 
 /**
